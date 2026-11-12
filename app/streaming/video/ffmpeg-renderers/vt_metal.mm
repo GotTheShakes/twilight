@@ -453,7 +453,21 @@ public:
                                                                     opticalOutputScale:m_ReferenceWhite];
             }
         }
+        else if (frame->color_trc == AVCOL_TRC_SMPTE2084 && m_MasteringDisplayColorVolume != nullptr) {
+            // Attach the host's HDR10 metadata so macOS tone maps PQ content to the
+            // display's current EDR headroom instead of hard clipping at it.
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                        "EDR metadata: HDR10 from host MDCV%s (min/max nits %.4f/%.2f), opticalOutputScale 203.0",
+                        m_ContentLightLevelInfo != nullptr ? " + CLL" : "",
+                        m_MinNits, m_MaxNits);
+            m_MetalLayer.EDRMetadata = [CAEDRMetadata HDR10MetadataWithDisplayInfo:(__bridge NSData*)m_MasteringDisplayColorVolume
+                                                                       contentInfo:(__bridge NSData*)m_ContentLightLevelInfo
+                                                                opticalOutputScale:203.0];
+        }
         else {
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                        "EDR metadata: none (%s)",
+                        frame->color_trc == AVCOL_TRC_SMPTE2084 ? "PQ but no host mastering metadata" : "not PQ");
             m_MetalLayer.EDRMetadata = nullptr;
         }
 
