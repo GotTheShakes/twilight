@@ -234,6 +234,13 @@ elif [ "${TWILIGHT_SIGN:-}" = "1" ]; then
     "$APP_BUNDLE" || fail "Signing failed!"
   echo "App signature:"
   codesign -d --entitlements - -vvv "$APP_BUNDLE"
+else
+  # Unsigned builds still need a valid ad-hoc signature: install_name_tool
+  # above invalidates the bundled dylibs' signatures, and Gatekeeper then
+  # reports the downloaded app as "damaged".
+  echo "Ad-hoc signing app bundle"
+  codesign --force --deep --sign - "$APP_BUNDLE" || fail "Ad-hoc signing failed!"
+  codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE" || fail "Ad-hoc signature did not verify!"
 fi
 
 # A store package is a signed installer, not a DMG.
