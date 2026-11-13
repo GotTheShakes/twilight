@@ -75,6 +75,7 @@
 #define CURRENT_DEFAULT_VER 2
 
 static QAtomicInt s_HudWantsSamples(0);
+static QAtomicInt s_HudShownInStream(0);
 
 static StreamingPreferences* s_GlobalPrefs;
 
@@ -521,7 +522,12 @@ void StreamingPreferences::setSpatialHeadTracking(bool enabled)
 
 bool StreamingPreferences::hudWantsSamples()
 {
-    return s_HudWantsSamples.loadAcquire() != 0;
+    return s_HudWantsSamples.loadAcquire() != 0 || s_HudShownInStream.loadAcquire() != 0;
+}
+
+void StreamingPreferences::setHudShownInStream(bool shown)
+{
+    s_HudShownInStream.storeRelease(shown ? 1 : 0);
 }
 
 void StreamingPreferences::publishHudSamplingFlag()

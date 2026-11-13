@@ -287,15 +287,16 @@ void Session::stopMicrophone()
 
 void Session::toggleEnabledPerformanceOverlays()
 {
-    const int targets = performanceOverlayToggleTargets(m_Preferences->showPerformanceOverlay,
-                                                        m_Preferences->showTwilightHud());
-    if (targets & OverlayToggleClassic) {
-        const bool next = !m_OverlayManager.isOverlayEnabled(Overlay::OverlayDebug);
-        m_OverlayManager.setOverlayState(Overlay::OverlayDebug, next);
-    }
-    if ((targets & OverlayToggleTwilight) && StreamHudStats::instance() != nullptr) {
-        StreamHudStats* hud = StreamHudStats::instance();
-        hud->setHudShown(!hud->hudShown());
+    StreamHudStats* hud = StreamHudStats::instance();
+    const bool hudAvailable = hud != nullptr && hud->streaming();
+    const int shown = performanceOverlaysAfterToggle(m_OverlayManager.isOverlayEnabled(Overlay::OverlayDebug),
+                                                     hudAvailable && hud->hudShown(),
+                                                     m_Preferences->showPerformanceOverlay,
+                                                     m_Preferences->showTwilightHud(),
+                                                     hudAvailable);
+    m_OverlayManager.setOverlayState(Overlay::OverlayDebug, (shown & OverlayToggleClassic) != 0);
+    if (hudAvailable) {
+        hud->setHudShown((shown & OverlayToggleTwilight) != 0);
     }
     StreamHudStats::flushStreamUi();
     StreamHudStats::followStream();

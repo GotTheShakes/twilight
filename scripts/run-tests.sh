@@ -35,6 +35,9 @@ g++ -std=c++17 -Wall -Wextra -Werror \
   tests/adaptive_bitrate_test.cpp -Iapp/streaming -o /tmp/adaptive_bitrate_test
 /tmp/adaptive_bitrate_test
 g++ -std=c++17 -Wall -Wextra -Werror \
+  tests/overlay_toggle_test.cpp -Iapp -o /tmp/overlay_toggle_test
+/tmp/overlay_toggle_test
+g++ -std=c++17 -Wall -Wextra -Werror \
   tests/twilight_hud_parse_test.cpp app/gui/streamhudparse.cpp \
   -Iapp/gui -o /tmp/hud_parse_test
 /tmp/hud_parse_test
