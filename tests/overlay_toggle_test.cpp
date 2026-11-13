@@ -19,11 +19,11 @@ int main()
     const int both = OverlayToggleClassic | OverlayToggleTwilight;
 
     // Both settings off: the shortcut still shows an overlay.
-    expect(performanceOverlaysAfterToggle(false, false, false, false, true) == twilight,
-           "both settings off shows the Twilight overlay");
+    expect(performanceOverlaysAfterToggle(false, false, false, false, true) == classic,
+           "both settings off shows the Classic overlay");
     expect(performanceOverlaysAfterToggle(false, false, false, false, false) == classic,
            "both settings off without the Twilight HUD shows Classic");
-    expect(performanceOverlaysAfterToggle(false, true, false, false, true) == OverlayToggleNone,
+    expect(performanceOverlaysAfterToggle(true, false, false, false, true) == OverlayToggleNone,
            "second press hides the overlay the shortcut showed");
 
     // Overlays enabled in Settings come back on the next press.

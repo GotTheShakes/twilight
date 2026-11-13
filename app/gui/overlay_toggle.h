@@ -5,8 +5,8 @@
 // shown when a stream starts; the shortcut works either way, as in Moonlight.
 //
 // If any overlay is showing, one press hides them all. If none is showing,
-// it shows the overlays enabled in Settings, or the Twilight overlay (the
-// Classic one when the Twilight HUD is unavailable) if neither is enabled.
+// it shows the overlays enabled in Settings, or the Classic overlay (the one
+// this shortcut controls in Moonlight) if neither is enabled.
 
 enum OverlayToggleTarget
 {
@@ -32,7 +32,7 @@ inline int performanceOverlaysAfterToggle(bool classicVisible, bool twilightVisi
         shown |= OverlayToggleTwilight;
     }
     if (shown == OverlayToggleNone) {
-        shown = twilightAvailable ? OverlayToggleTwilight : OverlayToggleClassic;
+        shown = OverlayToggleClassic;
     }
     return shown;
 }
