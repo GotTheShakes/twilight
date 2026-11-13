@@ -236,6 +236,9 @@ public:
     Q_INVOKABLE bool microphoneNeedsSystemSettings() const;
 
     static bool hudWantsSamples();
+    // Set by the Twilight HUD while a stream runs, so the stats shortcut can
+    // show the chips (with live samples) even when the setting is off.
+    static void setHudShownInStream(bool shown);
 
     bool spatialHeadTracking() const;
     void setSpatialHeadTracking(bool enabled);

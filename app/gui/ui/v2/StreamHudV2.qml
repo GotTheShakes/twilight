@@ -14,7 +14,7 @@ Window {
     // Chips follow the Twilight overlay plus the runtime shortcut. The quick
     // menu uses this same window when the chips are hidden, so End Stream
     // stays reachable while the mouse is captured.
-    visible: StreamHudStats.streaming && StreamingPreferences.uiVersion === "v2" && ((StreamingPreferences.showTwilightHud && StreamHudStats.hudShown) || StreamHudStats.quickMenuOpen)
+    visible: StreamHudStats.streaming && StreamingPreferences.uiVersion === "v2" && (StreamHudStats.hudShown || StreamHudStats.quickMenuOpen)
 
     width: column.implicitWidth
     height: column.implicitHeight
@@ -49,7 +49,7 @@ Window {
 
         HudChipsV2 {
             id: chips
-            visible: StreamingPreferences.showTwilightHud && StreamHudStats.hudShown
+            visible: StreamHudStats.hudShown
         }
 
         Rectangle {

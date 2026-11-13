@@ -1,9 +1,12 @@
 #pragma once
 
-// Which performance overlays Ctrl+Alt+Shift+S (and the gamepad stats
-// combo) should flip. A setting that is off is not part of the toggle,
-// so the shortcut cannot turn on an overlay the user did not enable.
-// When both are enabled, one press flips both.
+// What Ctrl+Alt+Shift+S (and the gamepad stats combo) does to the two
+// performance overlays. The Settings toggles only decide which overlays are
+// shown when a stream starts; the shortcut works either way, as in Moonlight.
+//
+// If any overlay is showing, one press hides them all. If none is showing,
+// it shows the overlays enabled in Settings, or the Twilight overlay (the
+// Classic one when the Twilight HUD is unavailable) if neither is enabled.
 
 enum OverlayToggleTarget
 {
@@ -12,14 +15,24 @@ enum OverlayToggleTarget
     OverlayToggleTwilight = 1 << 1,
 };
 
-inline int performanceOverlayToggleTargets(bool classicEnabled, bool twilightEnabled)
+// Returns the overlays that should be visible after the press.
+inline int performanceOverlaysAfterToggle(bool classicVisible, bool twilightVisible,
+                                          bool classicEnabled, bool twilightEnabled,
+                                          bool twilightAvailable)
 {
-    int targets = OverlayToggleNone;
+    if (classicVisible || (twilightAvailable && twilightVisible)) {
+        return OverlayToggleNone;
+    }
+
+    int shown = OverlayToggleNone;
     if (classicEnabled) {
-        targets |= OverlayToggleClassic;
+        shown |= OverlayToggleClassic;
     }
-    if (twilightEnabled) {
-        targets |= OverlayToggleTwilight;
+    if (twilightEnabled && twilightAvailable) {
+        shown |= OverlayToggleTwilight;
     }
-    return targets;
+    if (shown == OverlayToggleNone) {
+        shown = twilightAvailable ? OverlayToggleTwilight : OverlayToggleClassic;
+    }
+    return shown;
 }

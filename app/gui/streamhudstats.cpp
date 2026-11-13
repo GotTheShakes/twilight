@@ -142,7 +142,10 @@ void StreamHudStats::noteSessionStarted()
     const bool was = m_Streaming;
     m_Streaming = true;
     m_HasSample = false;
-    m_HudShown = true;
+    // The Settings toggle decides whether the chips start shown. The stats
+    // shortcut can still show or hide them during the stream.
+    m_HudShown = StreamingPreferences::get()->showTwilightHud();
+    StreamingPreferences::setHudShownInStream(m_HudShown);
     m_FpsText.clear();
     m_BitrateText.clear();
     m_LatencyText.clear();
@@ -167,6 +170,7 @@ void StreamHudStats::noteSessionEnded()
     m_HasSample = false;
     m_ConfirmArmed = false;
     m_HudShown = true;
+    StreamingPreferences::setHudShownInStream(false);
     if (m_QuickMenuOpen) {
         m_QuickMenuOpen = false;
         emit quickMenuOpenChanged();
@@ -208,7 +212,8 @@ static bool hudShouldSync()
     if (self == nullptr || !self->streaming() || s_HudWindow.isNull()) {
         return false;
     }
-    // The chips follow the Twilight overlay setting plus the runtime toggle.
+    // The chips start from the Twilight overlay setting; the stats shortcut
+    // shows or hides them at runtime.
     // The quick menu uses the same child window, including when the chips
     // themselves are hidden.
     if (self->quickMenuOpen()) {
@@ -306,6 +311,9 @@ void StreamHudStats::setHudShown(bool shown)
         return;
     }
     m_HudShown = shown;
+    if (m_Streaming) {
+        StreamingPreferences::setHudShownInStream(shown);
+    }
     emit hudShownChanged();
 }
 
