@@ -212,14 +212,10 @@ static bool hudShouldSync()
     if (self == nullptr || !self->streaming() || s_HudWindow.isNull()) {
         return false;
     }
-    // The chips start from the Twilight overlay setting; the stats shortcut
-    // shows or hides them at runtime.
-    // The quick menu uses the same child window, including when the chips
-    // themselves are hidden.
-    if (self->quickMenuOpen()) {
-        return true;
-    }
-    return StreamingPreferences::hudWantsSamples() && self->hudShown();
+    // The HUD window stays a child of the stream window for the whole stream,
+    // even while the chips and the quick menu are hidden. Detaching it and
+    // showing it again would put it on the desktop Space first.
+    return true;
 }
 
 void StreamHudStats::followStream()

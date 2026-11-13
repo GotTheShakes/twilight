@@ -11,13 +11,18 @@ Window {
     flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus | Qt.NoDropShadowWindowHint
     color: "transparent"
     title: ""
-    // Chips follow the Twilight overlay plus the runtime shortcut. The quick
-    // menu uses this same window when the chips are hidden, so End Stream
-    // stays reachable while the mouse is captured.
-    visible: StreamHudStats.streaming && StreamingPreferences.uiVersion === "v2" && (StreamHudStats.hudShown || StreamHudStats.quickMenuOpen)
+    // The window stays up for the whole stream, attached to the stream
+    // window; only its content is shown or hidden. Showing it again mid-stream
+    // would make it a new top-level window first, and macOS can switch to the
+    // desktop Space to display it before it is re-attached. The chips follow
+    // the Twilight overlay setting plus the runtime shortcut, and the quick
+    // menu uses the same window, so End Stream stays reachable while the
+    // mouse is captured.
+    visible: StreamHudStats.streaming && StreamingPreferences.uiVersion === "v2"
 
-    width: column.implicitWidth
-    height: column.implicitHeight
+    // A window with nothing showing is 1x1 and fully transparent.
+    width: Math.max(1, column.implicitWidth)
+    height: Math.max(1, column.implicitHeight)
 
     function place() {
         // On macOS the stream loop owns the frame. Setting x/y here uses the
