@@ -1440,7 +1440,12 @@ private:
 
         // Exit the entire program if requested
         if (m_Session->m_ShouldExit) {
-            QCoreApplication::instance()->quit();
+            // This runs on a thread pool thread; quit on the main thread.
+            if (QCoreApplication* app = QCoreApplication::instance()) {
+                QMetaObject::invokeMethod(app, []() {
+                    QCoreApplication::quit();
+                }, Qt::QueuedConnection);
+            }
         }
     }
 
