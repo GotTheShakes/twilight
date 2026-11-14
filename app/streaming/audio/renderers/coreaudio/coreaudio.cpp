@@ -12,13 +12,14 @@
 #include <string>
 
 #define kRingBufferMaxSeconds 0.030
-// The spatial mixer may pull audio in blocks larger than one Opus packet, and
-// it now waits for a 20 ms cushion first, so it needs more room.
+// The spatial mixer may pull audio in blocks larger than one Opus packet, so
+// its ring buffer has room to spare. The latency cap below decides how much
+// of it is actually used.
 #define kSpatialRingBufferMaxSeconds 0.150
-// Past this much queued audio in spatial mode (or one mixer pull plus 40 ms,
-// if that is more), drop packets to keep the latency from creeping up when
-// the host clock runs ahead of the output.
-#define kSpatialMaxQueuedMs 80.0
+// Past this much queued audio in spatial mode (or one mixer pull plus 20 ms,
+// if that is more), drop packets so a burst of late packets or clock drift
+// cannot leave the audio further behind. 30 ms matches the old buffer size.
+#define kSpatialMaxQueuedMs 30.0
 
 CoreAudioRenderer::CoreAudioRenderer()
     : m_OutputAU(nullptr),
@@ -736,7 +737,7 @@ bool CoreAudioRenderer::submitAudio(int bytesWritten)
 
     // Never below the level the mixer waits for before it starts playing.
     const double pullMs = m_SpatialAU.m_MaxPullFrames.load(std::memory_order_relaxed) / (m_opusConfig->sampleRate / 1000.0);
-    const double maxQueuedMs = qMax(kSpatialMaxQueuedMs, pullMs + 40.0);
+    const double maxQueuedMs = qMax(kSpatialMaxQueuedMs, pullMs + 20.0);
     if (m_Spatial && availableBytes / bytesPerMs > maxQueuedMs) {
         ++m_LatencyDrops;
     }

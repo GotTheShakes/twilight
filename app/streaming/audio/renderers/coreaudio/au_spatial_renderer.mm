@@ -165,11 +165,11 @@ OSStatus inputCallback(void *inRefCon,
         me->m_MaxPullFrames.store(inNumberFrames, std::memory_order_relaxed);
     }
 
-    // Jitter cushion: after start or an underrun, wait until one full pull
-    // plus 20 ms is queued. Playing each packet the moment it arrives leaves
-    // no slack, and a late packet becomes a gap (an audible click).
+    // Small jitter cushion: after start or an underrun, wait until one full
+    // pull plus one 5 ms Opus packet is queued, so a packet that is slightly
+    // late does not leave a gap (an audible click). Kept small for latency.
     if (!me->m_Primed) {
-        uint32_t cushionBytes = 20 * 48 * bytesPerFrame;
+        uint32_t cushionBytes = 5 * 48 * bytesPerFrame;
         if (availableBytes < wantedBytes + cushionBytes) {
             // XXX this ioActionFlags with silence flag seems to get lost, instead of returning via
             // AudioUnitRender() <- process() <- renderSpatialCallback()
