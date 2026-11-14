@@ -41,6 +41,7 @@ private:
     void cleanup();
     AUSpatialMixerOutputType getSpatialMixerOutputType();
     void setOutputDeviceName(CFStringRef);
+    void logSpatialStats(double queuedMs);
 
     AudioUnit m_OutputAU;
     bool m_OutputInitialized;
@@ -83,4 +84,10 @@ private:
     uint32_t m_DropCount;
     uint32_t m_DropCountUnderrun;
     std::atomic<int> m_QueuedAudioSize;
+
+    // spatial diagnostics (decoder thread)
+    uint32_t m_OverflowDrops = 0;
+    uint32_t m_LatencyDrops = 0;
+    uint32_t m_LastSpatialLogTicks = 0;
+    bool m_LoggedSpatialPull = false;
 };

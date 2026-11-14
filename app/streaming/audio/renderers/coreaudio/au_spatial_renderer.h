@@ -7,6 +7,8 @@
 
 #include <Limelight.h>
 
+#include <atomic>
+
 typedef void (^SimpleBlock)();
 
 class AUSpatialRenderer
@@ -35,11 +37,19 @@ public:
 
     uint32_t m_PersonalizedHRTF;
 
+    // Written by the realtime input callback, read by the decoder thread
+    // for logging.
+    std::atomic<uint32_t> m_LastPullFrames{0};
+    std::atomic<uint32_t> m_MaxPullFrames{0};
+    std::atomic<uint32_t> m_Underruns{0};
+
 private:
     AudioUnit _Nonnull m_Mixer;
     const TPCircularBuffer* _Nonnull m_RingBufferPtr; // pointer to RingBuffer in the outer CoreAudioRenderer
     SimpleBlock _Nonnull m_StatsTrackRenderBlock;
 
     bool m_Initialized = false;
+    // Render thread only: true once enough audio is queued to start playing.
+    bool m_Primed = false;
     double m_AudioUnitLatency;
 };

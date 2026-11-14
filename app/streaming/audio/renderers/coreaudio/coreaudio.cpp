@@ -12,11 +12,19 @@
 #include <string>
 
 #define kRingBufferMaxSeconds 0.030
+// The spatial mixer may pull audio in blocks larger than one Opus packet, and
+// it now waits for a 20 ms cushion first, so it needs more room.
+#define kSpatialRingBufferMaxSeconds 0.150
+// Past this much queued audio in spatial mode (or one mixer pull plus 40 ms,
+// if that is more), drop packets to keep the latency from creeping up when
+// the host clock runs ahead of the output.
+#define kSpatialMaxQueuedMs 80.0
 
 CoreAudioRenderer::CoreAudioRenderer()
     : m_OutputAU(nullptr),
     m_OutputInitialized(false),
     m_OutputStarted(false),
+    m_RingBuffer{},
     m_SpatialBuffer(2, 4096),
     m_DropCount(0),
     m_DropCountUnderrun(0),
@@ -82,7 +90,11 @@ void CoreAudioRenderer::cleanup()
         m_OutputAU = nullptr;
     }
 
-    TPCircularBufferCleanup(&m_RingBuffer);
+    // The ring buffer is created after the device and listeners, so an early
+    // setup failure can reach here before it exists.
+    if (m_RingBuffer.buffer != nullptr) {
+        TPCircularBufferCleanup(&m_RingBuffer);
+    }
 
     if (m_OutputDeviceName) {
         free(m_OutputDeviceName);
@@ -208,7 +220,7 @@ OSStatus renderCallbackSpatial(void *inRefCon,
     // SpatialAU's inputCallback can't return a status via ioActionFlags, so we need to track underruns here
     uint32_t availableBytes;
     TPCircularBufferTail(&me->m_RingBuffer, &availableBytes);
-    uint32_t channelCount = ioData->mNumberBuffers;
+    uint32_t channelCount = (uint32_t)me->m_opusConfig->channelCount;
     uint32_t wantedBytes  = channelCount * inNumberFrames * sizeof(float);
     bool didUnderrun = false;
     if (availableBytes < wantedBytes) {
@@ -246,11 +258,6 @@ bool CoreAudioRenderer::prepareForPlayback(const OPUS_MULTISTREAM_CONFIGURATION*
         return false;
     }
 
-    if (!initRingBuffer()) {
-        DEBUG_TRACE("initRingBuffer failed");
-        return false;
-    }
-
     if (!initListeners()) {
         DEBUG_TRACE("initListeners failed");
         return false;
@@ -274,6 +281,12 @@ bool CoreAudioRenderer::prepareForPlayback(const OPUS_MULTISTREAM_CONFIGURATION*
         m_Spatial = false;
     }
 
+    // Sized for the mode, so this runs once m_Spatial is known.
+    if (!initRingBuffer()) {
+        DEBUG_TRACE("initRingBuffer failed");
+        return false;
+    }
+
     // indicate the format our callback will provide samples in
     // If necessary, the OS takes care of resampling (but not downmixing, hmm)
     AudioStreamBasicDescription streamDesc;
@@ -291,8 +304,9 @@ bool CoreAudioRenderer::prepareForPlayback(const OPUS_MULTISTREAM_CONFIGURATION*
         // render audio for binaural headphones or built-in laptop speakers
         setCallback(renderCallbackSpatial);
 
-        // this callback is non-interleaved
+        // this callback is non-interleaved, and the spatial mixer renders stereo
         streamDesc.mFormatFlags    |= kAudioFormatFlagIsNonInterleaved;
+        streamDesc.mChannelsPerFrame = 2;
         streamDesc.mBytesPerPacket = 4;
         streamDesc.mBytesPerFrame  = 4;
 
@@ -555,7 +569,9 @@ bool CoreAudioRenderer::initAudioUnit()
 bool CoreAudioRenderer::initRingBuffer()
 {
     // Always buffer at least 2 packets, up to 30ms worth of packets
-    int packetsToBuffer = qMax(2, (int)ceil(kRingBufferMaxSeconds / m_AudioPacketDuration));
+    // (120ms in spatial mode)
+    const double maxSeconds = m_Spatial ? kSpatialRingBufferMaxSeconds : kRingBufferMaxSeconds;
+    int packetsToBuffer = qMax(2, (int)ceil(maxSeconds / m_AudioPacketDuration));
 
     bool ok = TPCircularBufferInit(&m_RingBuffer,
                                    sizeof(float) *
@@ -684,7 +700,12 @@ void* CoreAudioRenderer::getAudioBuffer(int* size)
     uint32_t bytesFree;
     void *ptr = TPCircularBufferHead(&m_RingBuffer, &bytesFree);
     int bytesPerFrame = m_opusConfig->channelCount * sizeof(float);
+    const int requested = *size;
     *size = qMin(*size, (int)(bytesFree / bytesPerFrame) * bytesPerFrame);
+    if (*size < requested) {
+        // Opus cannot decode a packet into a short buffer, so this packet is lost.
+        ++m_OverflowDrops;
+    }
 
     m_BufferFilledBytes = m_RingBuffer.length - bytesFree;
 
@@ -709,15 +730,63 @@ bool CoreAudioRenderer::submitAudio(int bytesWritten)
         return true;
     }
 
-    // Advance the write pointer
-    TPCircularBufferProduce(&m_RingBuffer, bytesWritten);
-
-    // Get buffered audio size
     uint32_t availableBytes;
     TPCircularBufferTail(&m_RingBuffer, &availableBytes);
+    const double bytesPerMs = m_opusConfig->channelCount * sizeof(float) * (m_opusConfig->sampleRate / 1000.0);
+
+    // Never below the level the mixer waits for before it starts playing.
+    const double pullMs = m_SpatialAU.m_MaxPullFrames.load(std::memory_order_relaxed) / (m_opusConfig->sampleRate / 1000.0);
+    const double maxQueuedMs = qMax(kSpatialMaxQueuedMs, pullMs + 40.0);
+    if (m_Spatial && availableBytes / bytesPerMs > maxQueuedMs) {
+        ++m_LatencyDrops;
+    }
+    else {
+        // Advance the write pointer
+        TPCircularBufferProduce(&m_RingBuffer, bytesWritten);
+        TPCircularBufferTail(&m_RingBuffer, &availableBytes);
+    }
+
+    // Get buffered audio size
     m_QueuedAudioSize.store(availableBytes);
 
+    if (m_Spatial) {
+        logSpatialStats(availableBytes / bytesPerMs);
+    }
+
     return true;
+}
+
+void CoreAudioRenderer::logSpatialStats(double queuedMs)
+{
+    // Decoder thread. Logs the mixer's pull size once, then every 10 seconds
+    // while there were underruns or drops.
+    const uint32_t now = SDL_GetTicks();
+    if (m_LastSpatialLogTicks == 0) {
+        m_LastSpatialLogTicks = now;
+        return;
+    }
+    if (m_LoggedSpatialPull ? !SDL_TICKS_PASSED(now, m_LastSpatialLogTicks + 10000)
+                            : !SDL_TICKS_PASSED(now, m_LastSpatialLogTicks + 2000)) {
+        return;
+    }
+
+    const uint32_t underruns = m_SpatialAU.m_Underruns.exchange(0, std::memory_order_relaxed);
+    const uint32_t overflow = m_OverflowDrops;
+    const uint32_t latency = m_LatencyDrops;
+    m_OverflowDrops = 0;
+    m_LatencyDrops = 0;
+
+    if (!m_LoggedSpatialPull || underruns != 0 || overflow != 0 || latency != 0) {
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                    "CoreAudio spatial: mixer pulls %u frames (max %u), queued %.1f ms, "
+                    "underruns %u, full-buffer drops %u, latency drops %u (last %s)",
+                    m_SpatialAU.m_LastPullFrames.load(std::memory_order_relaxed),
+                    m_SpatialAU.m_MaxPullFrames.load(std::memory_order_relaxed),
+                    queuedMs, underruns, overflow, latency,
+                    m_LoggedSpatialPull ? "10 s" : "2 s");
+        m_LoggedSpatialPull = true;
+    }
+    m_LastSpatialLogTicks = now;
 }
 
 AUSpatialMixerOutputType CoreAudioRenderer::getSpatialMixerOutputType()

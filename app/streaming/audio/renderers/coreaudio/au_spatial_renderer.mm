@@ -93,6 +93,7 @@ void AUSpatialRenderer::setHeadTracking(bool enabled)
 void AUSpatialRenderer::setRingBufferPtr(const TPCircularBuffer *buffer)
 {
     m_RingBufferPtr = buffer;
+    m_Primed = false;
 }
 
 OSStatus AUSpatialRenderer::setStreamFormatAndACL(float inSampleRate,
@@ -154,32 +155,49 @@ OSStatus inputCallback(void *inRefCon,
 
     // Total size of interleaved PCM for all channels
     uint32_t channelCount = ioData->mNumberBuffers;
-    uint32_t wantedBytes  = channelCount * inNumberFrames * sizeof(float);
+    uint32_t bytesPerFrame = channelCount * sizeof(float);
+    uint32_t wantedBytes  = bytesPerFrame * inNumberFrames;
 
-    // Optionally force a minimum buffer size before playback
-    bool buffering = false;
-    float queuedAudioMs = (float)availableBytes / (48 * channelCount * sizeof(float));
-    if (queuedAudioMs < 20.0) {
-        buffering = true;
+    // The mixer can pull more frames per call than the output device asks
+    // for. Record it so the decoder thread can log the real pull size.
+    me->m_LastPullFrames.store(inNumberFrames, std::memory_order_relaxed);
+    if (inNumberFrames > me->m_MaxPullFrames.load(std::memory_order_relaxed)) {
+        me->m_MaxPullFrames.store(inNumberFrames, std::memory_order_relaxed);
     }
 
+    // Jitter cushion: after start or an underrun, wait until one full pull
+    // plus 20 ms is queued. Playing each packet the moment it arrives leaves
+    // no slack, and a late packet becomes a gap (an audible click).
+    if (!me->m_Primed) {
+        uint32_t cushionBytes = 20 * 48 * bytesPerFrame;
+        if (availableBytes < wantedBytes + cushionBytes) {
+            // XXX this ioActionFlags with silence flag seems to get lost, instead of returning via
+            // AudioUnitRender() <- process() <- renderSpatialCallback()
+            *ioActionFlags |= kAudioUnitRenderAction_OutputIsSilence;
+            return noErr;
+        }
+        me->m_Primed = true;
+    }
+
+    // On an underrun, play the whole frames that are queued instead of
+    // replacing the entire pull with silence, then build the cushion again.
+    uint32_t framesToCopy = inNumberFrames;
     if (availableBytes < wantedBytes) {
-        // not enough data for all channels, note we are sending back a zeroed-out buffer
-        // This underrun is not always a problem, so it's not included in stats currently
-        // XXX this ioActionFlags with silence flag seems to get lost, instead of returning via
-        // AudioUnitRender() <- process() <- renderSpatialCallback()
-        *ioActionFlags |= kAudioUnitRenderAction_OutputIsSilence;
-        return noErr;
+        framesToCopy = availableBytes / bytesPerFrame;
+        me->m_Underruns.fetch_add(1, std::memory_order_relaxed);
+        me->m_Primed = false;
     }
 
     // de-interleave ringBuffer PCM data into per-channel buffers
-    const float zero = 0.0f;
-    for (uint32_t channel = 0; channel < channelCount; channel++) {
-        float *channelBuffer = (float *)ioData->mBuffers[channel].mData;
-        vDSP_vsadd(ringBuffer + channel, channelCount, &zero, channelBuffer, 1, inNumberFrames);
-    }
+    if (framesToCopy > 0) {
+        const float zero = 0.0f;
+        for (uint32_t channel = 0; channel < channelCount; channel++) {
+            float *channelBuffer = (float *)ioData->mBuffers[channel].mData;
+            vDSP_vsadd(ringBuffer + channel, channelCount, &zero, channelBuffer, 1, framesToCopy);
+        }
 
-    TPCircularBufferConsume((TPCircularBuffer *)me->m_RingBufferPtr, wantedBytes);
+        TPCircularBufferConsume((TPCircularBuffer *)me->m_RingBufferPtr, framesToCopy * bytesPerFrame);
+    }
 
     // The Apple example included this but it doesn't seem to do anything?
     // (*ioActionFlags) = kAudioOfflineUnitRenderAction_Complete;
